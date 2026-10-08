@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/data.ts","./src/main.tsx","./src/roadblockgeometry.d.ts","./src/types.ts","./src/vite-env.d.ts","./src/components/mapview.tsx","./src/hooks/uselivelocation.ts","./src/services/backend.ts"],"version":"5.9.3"}
