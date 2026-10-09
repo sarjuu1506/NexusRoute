@@ -52,7 +52,7 @@ type Props = {
 
 function obstacleCircle(event: RoadEvent) {
   const latitudeDelta = event.radiusMeters / 111_320;
-  const longitudeDelta = latitudeDelta / (111_320 * Math.cos(event.lat * Math.PI / 180));
+  const longitudeDelta = latitudeDelta / Math.cos(event.lat * Math.PI / 180);
   const coordinates: [number, number][] = [];
   for (let index = 0; index <= 32; index += 1) {
     const angle = index * Math.PI * 2 / 32;
@@ -139,6 +139,218 @@ function setupBuildingLayers(map: MapLibreMap, show3D: boolean) {
   }
 }
 
+function setupMapLayers(map: MapLibreMap) {
+  if (!map || !map.getStyle()) return;
+
+  // 1. Route lines
+  if (!map.getSource("wayfi-routes")) {
+    map.addSource("wayfi-routes", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] }
+    });
+    map.addLayer({
+      id: "wayfi-fleet-routes",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "fleet"],
+      paint: { "line-color": "#94a3b8", "line-width": 2, "line-opacity": 0.55 }
+    });
+    map.addLayer({
+      id: "wayfi-current-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "current"],
+      paint: { "line-color": "#1e293b", "line-width": 4.5, "line-opacity": 0.95 }
+    });
+    map.addLayer({
+      id: "wayfi-old-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "old"],
+      paint: {
+        "line-color": "#64748b",
+        "line-width": 2,
+        "line-opacity": 0.75,
+        "line-dasharray": [2, 2]
+      }
+    });
+    map.addLayer({
+      id: "wayfi-active-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "active"],
+      paint: { "line-color": "#0ea5e9", "line-width": 6, "line-opacity": 0.98 }
+    });
+    map.addLayer({
+      id: "wayfi-active-teal-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "active-teal"],
+      paint: { "line-color": "#0d9488", "line-width": 6, "line-opacity": 0.98 }
+    });
+    map.addLayer({
+      id: "wayfi-alternative-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "alternative"],
+      paint: {
+        "line-color": "#64748b",
+        "line-width": 3,
+        "line-opacity": 0.75,
+        "line-dasharray": [2, 2]
+      }
+    });
+    map.addLayer({
+      id: "wayfi-recommended-route",
+      type: "line",
+      source: "wayfi-routes",
+      filter: ["==", ["get", "routeType"], "recommended"],
+      paint: { "line-color": "#059669", "line-width": 6, "line-opacity": 0.98 }
+    });
+  }
+
+  // 2. Vehicles and Demo Truck (teal #14b8a6, radius 10, stroke 3px white)
+  if (!map.getSource("wayfi-vehicles")) {
+    map.addSource("wayfi-vehicles", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] }
+    });
+
+    map.addLayer({
+      id: "wayfi-vehicles-circle",
+      type: "circle",
+      source: "wayfi-vehicles",
+      paint: {
+        "circle-radius": [
+          "case",
+          ["==", ["get", "id"], "DEMO-TRUCK"], 10,
+          ["==", ["get", "selected"], true], 11,
+          9
+        ],
+        "circle-color": [
+          "case",
+          ["==", ["get", "id"], "DEMO-TRUCK"], "#14b8a6",
+          ["match", ["get", "status"],
+            "At risk", "#ef4444",
+            "Blocked ahead", "#ef4444",
+            "Rerouted", "#0ea5e9",
+            "Rerouted via alternative", "#0ea5e9",
+            "Delivered", "#10b981",
+            "#1e293b"
+          ]
+        ],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 3,
+        "circle-opacity": 1
+      }
+    });
+
+    // Vehicles label symbol layer (no icon-image, DEMO TRUCK text for demo truck)
+    map.addLayer({
+      id: "wayfi-vehicles-label",
+      type: "symbol",
+      source: "wayfi-vehicles",
+      layout: {
+        "text-field": [
+          "case",
+          ["==", ["get", "id"], "DEMO-TRUCK"], "DEMO TRUCK",
+          ["concat", ["get", "name"], " · Demo"]
+        ],
+        "text-offset": [0, 1.6],
+        "text-anchor": "top",
+        "text-size": 12,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true
+      },
+      paint: {
+        "text-color": [
+          "case",
+          ["==", ["get", "id"], "DEMO-TRUCK"], "#0d9488",
+          "#1e293b"
+        ],
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2
+      }
+    });
+  }
+
+  // 3. Road-block / Obstacle zones (Placed ABOVE the truck layer)
+  if (!map.getSource("wayfi-obstacle-zones")) {
+    map.addSource("wayfi-obstacle-zones", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] }
+    });
+    map.addLayer({
+      id: "wayfi-obstacle-zone-fill",
+      type: "fill",
+      source: "wayfi-obstacle-zones",
+      paint: {
+        "fill-color": [
+          "match", ["get", "kind"],
+          "jam", "#f97316",
+          "obstacle", "#8b5cf6",
+          "#ef4444"
+        ],
+        "fill-opacity": 0.22
+      }
+    });
+    map.addLayer({
+      id: "wayfi-obstacle-zone-outline",
+      type: "line",
+      source: "wayfi-obstacle-zones",
+      paint: {
+        "line-color": [
+          "match", ["get", "kind"],
+          "jam", "#ea580c",
+          "obstacle", "#7c3aed",
+          "#dc2626"
+        ],
+        "line-width": 2.5,
+        "line-dasharray": [2, 2]
+      }
+    });
+  }
+
+  // 4. Incident / Event markers (Placed ABOVE road-block layers)
+  if (!map.getSource("wayfi-events")) {
+    map.addSource("wayfi-events", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] }
+    });
+    map.addLayer({
+      id: "wayfi-events-circle",
+      type: "circle",
+      source: "wayfi-events",
+      paint: {
+        "circle-radius": 12,
+        "circle-color": [
+          "match", ["get", "source"],
+          "Demo traffic jam", "#ea580c",
+          "Demo road obstacle", "#7c3aed",
+          "#dc2626"
+        ],
+        "circle-stroke-width": 2
+      }
+    });
+    map.addLayer({
+      id: "wayfi-events-label",
+      type: "symbol",
+      source: "wayfi-events",
+      layout: {
+        "text-field": ["get", "title"],
+        "text-offset": [0, 1.5],
+        "text-anchor": "top",
+        "text-size": 12
+      },
+      paint: {
+        "text-color": "#1e293b",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2
+      }
+    });
+  }
+}
+
 export default function MapView({
   vehicles,
   events,
@@ -162,6 +374,7 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const liveMarker = useRef<maplibregl.Marker | null>(null);
   const destinationMarker = useRef<maplibregl.Marker | null>(null);
+  const demoTruckMarker = useRef<maplibregl.Marker | null>(null);
 
   // Guards against camera hijacking and visual resets
   const hasLocatedInitialFix = useRef(false);
@@ -202,7 +415,7 @@ export default function MapView({
 
   const renderRoutes = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     const routeFeatures = [
       ...(liveOverlays ? vehicles.flatMap((vehicle) => [
@@ -247,70 +460,11 @@ export default function MapView({
       features: routeFeatures
     };
 
+    setupMapLayers(map);
+
     const source = map.getSource("wayfi-routes") as maplibregl.GeoJSONSource | undefined;
     if (source) {
       source.setData(routeData);
-    } else {
-      map.addSource("wayfi-routes", { type: "geojson", data: routeData });
-      map.addLayer({
-        id: "wayfi-fleet-routes",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "fleet"],
-        paint: { "line-color": "#94a3b8", "line-width": 2, "line-opacity": 0.55 }
-      });
-      map.addLayer({
-        id: "wayfi-current-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "current"],
-        paint: { "line-color": "#1e293b", "line-width": 4.5, "line-opacity": 0.95 }
-      });
-      map.addLayer({
-        id: "wayfi-old-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "old"],
-        paint: {
-          "line-color": "#64748b",
-          "line-width": 2,
-          "line-opacity": 0.75,
-          "line-dasharray": [2, 2]
-        }
-      });
-      map.addLayer({
-        id: "wayfi-active-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "active"],
-        paint: { "line-color": "#0ea5e9", "line-width": 6, "line-opacity": 0.98 }
-      });
-      map.addLayer({
-        id: "wayfi-active-teal-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "active-teal"],
-        paint: { "line-color": "#0d9488", "line-width": 6, "line-opacity": 0.98 }
-      });
-      map.addLayer({
-        id: "wayfi-alternative-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "alternative"],
-        paint: {
-          "line-color": "#64748b",
-          "line-width": 3,
-          "line-opacity": 0.75,
-          "line-dasharray": [2, 2]
-        }
-      });
-      map.addLayer({
-        id: "wayfi-recommended-route",
-        type: "line",
-        source: "wayfi-routes",
-        filter: ["==", ["get", "routeType"], "recommended"],
-        paint: { "line-color": "#059669", "line-width": 6, "line-opacity": 0.98 }
-      });
     }
 
     const obstacleFeatures = (liveOverlays ? events : []).map((event) => ({
@@ -329,37 +483,6 @@ export default function MapView({
     const obstacleSource = map.getSource("wayfi-obstacle-zones") as maplibregl.GeoJSONSource | undefined;
     if (obstacleSource) {
       obstacleSource.setData(obstacleData);
-    } else {
-      map.addSource("wayfi-obstacle-zones", { type: "geojson", data: obstacleData });
-      map.addLayer({
-        id: "wayfi-obstacle-zone-fill",
-        type: "fill",
-        source: "wayfi-obstacle-zones",
-        paint: {
-          "fill-color": [
-            "match", ["get", "kind"],
-            "jam", "#f97316",
-            "obstacle", "#8b5cf6",
-            "#ef4444"
-          ],
-          "fill-opacity": 0.22
-        }
-      });
-      map.addLayer({
-        id: "wayfi-obstacle-zone-outline",
-        type: "line",
-        source: "wayfi-obstacle-zones",
-        paint: {
-          "line-color": [
-            "match", ["get", "kind"],
-            "jam", "#ea580c",
-            "obstacle", "#7c3aed",
-            "#dc2626"
-          ],
-          "line-width": 2.5,
-          "line-dasharray": [2, 2]
-        }
-      });
     }
   }, [alternativeRoutes, currentRoute, events, liveOverlays, recommendedRoute, recommendedRouteId, selectedVehicleId, vehicles]);
 
@@ -401,15 +524,17 @@ export default function MapView({
 
 
 
-    map.on("click", "wayfi-vehicles-circle", (e) => {
-      e.originalEvent.stopPropagation();
-      userHasInteracted.current = false;
-      if (e.features && e.features[0].properties) {
-        latestProps.current.onSelectVehicle(e.features[0].properties.id);
-      }
-    });
-    map.on("mouseenter", "wayfi-vehicles-circle", () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on("mouseleave", "wayfi-vehicles-circle", () => { map.getCanvas().style.cursor = ''; });
+    for (const layerId of ["wayfi-vehicles-circle", "wayfi-demo-truck-circle"]) {
+      map.on("click", layerId, (e) => {
+        e.originalEvent.stopPropagation();
+        userHasInteracted.current = false;
+        if (e.features && e.features[0].properties) {
+          latestProps.current.onSelectVehicle(e.features[0].properties.id);
+        }
+      });
+      map.on("mouseenter", layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ''; });
+    }
 
     map.on("click", "wayfi-events-circle", (e) => {
       e.originalEvent.stopPropagation();
@@ -424,13 +549,30 @@ export default function MapView({
       setMapPitch(Math.round(map.getPitch()));
     });
 
-    map.on("style.load", () => {
-      setupBuildingLayers(map, buildings3DRef.current);
-      renderRoutesRef.current();
+    map.on("styleimagemissing", (e) => {
+      const id = e.id;
+      if (!map.hasImage(id)) {
+        const width = 1;
+        const height = 1;
+        const data = new Uint8Array(4);
+        map.addImage(id, { width, height, data }, { sdf: true });
+      }
     });
 
+    const onMapReady = () => {
+      setupBuildingLayers(map, buildings3DRef.current);
+      setupMapLayers(map);
+      renderRoutesRef.current();
+    };
+
+    map.on("load", onMapReady);
+    map.on("style.load", onMapReady);
+    map.on("styledata", onMapReady);
+
     map.on("error", (e) => {
-      console.warn("MapLibre notice:", e.error?.message || e);
+      const msg = typeof e.error?.message === "string" ? e.error.message : String(e || "");
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) return;
+      console.warn("MapLibre notice:", msg);
     });
 
     mapRef.current = map;
@@ -441,6 +583,10 @@ export default function MapView({
       if (destinationMarker.current) {
         destinationMarker.current.remove();
         destinationMarker.current = null;
+      }
+      if (demoTruckMarker.current) {
+        demoTruckMarker.current.remove();
+        demoTruckMarker.current = null;
       }
     };
   }, []);
@@ -468,6 +614,7 @@ export default function MapView({
       // Restore camera immediately: no reset, no jumping!
       map.jumpTo(camera);
       setupBuildingLayers(map, buildings3DRef.current);
+      setupMapLayers(map);
       renderRoutesRef.current();
     });
   }, [mapStyle]);
@@ -483,12 +630,20 @@ export default function MapView({
     }
   }, [routeGeometryKey, renderRoutes]);
 
-  // Sync vehicles GeoJSON (60 FPS without layout thrashing)
+  // Sync vehicles GeoJSON (updated via setData on each frame) AND render failsafe DOM marker for DEMO-TRUCK
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
-    const vehicleFeatures = vehicles.map((vehicle) => ({
+    if (!map.getSource("wayfi-vehicles")) {
+      setupMapLayers(map);
+    }
+
+    const validVehicles = vehicles.filter(
+      (v) => Number.isFinite(v.lng) && Number.isFinite(v.lat)
+    );
+
+    const vehicleFeatures = validVehicles.map((vehicle) => ({
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: [vehicle.lng, vehicle.lat] },
       properties: {
@@ -502,59 +657,47 @@ export default function MapView({
     const source = map.getSource("wayfi-vehicles") as maplibregl.GeoJSONSource | undefined;
     if (source) {
       source.setData({ type: "FeatureCollection", features: vehicleFeatures });
-    } else {
-      map.addSource("wayfi-vehicles", { type: "geojson", data: { type: "FeatureCollection", features: vehicleFeatures } });
-      
-      map.addLayer({
-        id: "wayfi-vehicles-circle",
-        type: "circle",
-        source: "wayfi-vehicles",
-        paint: {
-          "circle-radius": [
-            "case",
-            ["==", ["get", "selected"], true], 10,
-            8
-          ],
-          "circle-color": [
-            "match", ["get", "status"],
-            "At risk", "#ef4444",
-            "Blocked ahead", "#ef4444",
-            "Rerouted", "#0ea5e9",
-            "Rerouted via alternative", "#0ea5e9",
-            "Delivered", "#10b981",
-            "#1e293b"
-          ],
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2
-        }
-      });
-      map.addLayer({
-        id: "wayfi-vehicles-label",
-        type: "symbol",
-        source: "wayfi-vehicles",
-        layout: {
-          "text-field": ["concat", ["get", "name"], " · Demo"],
-          "text-offset": [0, 1.5],
-          "text-anchor": "top",
-          "text-size": 12
-        },
-        paint: {
-          "text-color": "#1e293b",
-          "text-halo-color": "#ffffff",
-          "text-halo-width": 2
-        }
-      });
+      try {
+        if (map.getLayer("wayfi-vehicles-circle")) map.moveLayer("wayfi-vehicles-circle");
+        if (map.getLayer("wayfi-vehicles-label")) map.moveLayer("wayfi-vehicles-label");
+      } catch {
+        // ignore
+      }
     }
 
-    map.setLayoutProperty("wayfi-vehicles-circle", "visibility", liveOverlays ? "visible" : "none");
-    map.setLayoutProperty("wayfi-vehicles-label", "visibility", liveOverlays ? "visible" : "none");
-
+    // HTML DOM Marker for DEMO-TRUCK (guaranteed visual indicator on top of canvas)
+    const demoTruck = validVehicles.find((v) => v.id === "DEMO-TRUCK");
+    if (demoTruck) {
+      const position: [number, number] = [demoTruck.lng, demoTruck.lat];
+      if (!demoTruckMarker.current) {
+        const el = document.createElement("div");
+        el.className = "demo-truck-marker";
+        el.innerHTML = `
+          <div class="demo-truck-pulse"></div>
+          <div class="demo-truck-dot">🚚</div>
+          <div class="demo-truck-badge">DEMO TRUCK</div>
+        `;
+        el.onclick = (e) => {
+          e.stopPropagation();
+          latestProps.current.onSelectVehicle("DEMO-TRUCK");
+        };
+        demoTruckMarker.current = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat(position)
+          .addTo(map);
+      } else {
+        demoTruckMarker.current.setLngLat(position);
+      }
+      demoTruckMarker.current.getElement().style.display = liveOverlays ? "" : "none";
+    } else if (demoTruckMarker.current) {
+      demoTruckMarker.current.remove();
+      demoTruckMarker.current = null;
+    }
   }, [liveOverlays, selectedVehicleId, vehicles]);
 
-  // Sync events/obstacles GeoJSON
+  // Sync events/obstacles GeoJSON (updated via setData)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     const eventFeatures = events.map((event) => ({
       type: "Feature" as const,
@@ -569,47 +712,27 @@ export default function MapView({
     const source = map.getSource("wayfi-events") as maplibregl.GeoJSONSource | undefined;
     if (source) {
       source.setData({ type: "FeatureCollection", features: eventFeatures });
-    } else {
-      map.addSource("wayfi-events", { type: "geojson", data: { type: "FeatureCollection", features: eventFeatures } });
-      
-      map.addLayer({
-        id: "wayfi-events-circle",
-        type: "circle",
-        source: "wayfi-events",
-        paint: {
-          "circle-radius": 12,
-          "circle-color": [
-            "match", ["get", "source"],
-            "Demo traffic jam", "#ea580c",
-            "Demo road obstacle", "#7c3aed",
-            "#dc2626"
-          ],
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2
-        }
-      });
-      map.addLayer({
-        id: "wayfi-events-label",
-        type: "symbol",
-        source: "wayfi-events",
-        layout: {
-          "text-field": ["get", "title"],
-          "text-offset": [0, 1.5],
-          "text-anchor": "top",
-          "text-size": 12
-        },
-        paint: {
-          "text-color": "#1e293b",
-          "text-halo-color": "#ffffff",
-          "text-halo-width": 2
-        }
-      });
     }
+  }, [events]);
 
-    map.setLayoutProperty("wayfi-events-circle", "visibility", liveOverlays ? "visible" : "none");
-    map.setLayoutProperty("wayfi-events-label", "visibility", liveOverlays ? "visible" : "none");
+  // Toggle visibility of overlay layers without thrashing on each frame
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getStyle()) return;
 
-  }, [events, liveOverlays]);
+    const visibility = liveOverlays ? "visible" : "none";
+    const overlayLayers = [
+      "wayfi-vehicles-circle",
+      "wayfi-vehicles-label",
+      "wayfi-events-circle",
+      "wayfi-events-label"
+    ];
+    for (const layerId of overlayLayers) {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, "visibility", visibility);
+      }
+    }
+  }, [liveOverlays]);
 
   // Live user location marker - only swoops ONCE on the very first GPS lock!
   // Subsequent GPS watcher ticks only move the dot icon and NEVER pull the camera away!
@@ -709,6 +832,49 @@ export default function MapView({
     if (map.isStyleLoaded()) fitDestination();
     else map.once("load", fitDestination);
   }, [destination, currentRoute]);
+
+  // One-time fit bounds for demo truck and its route after "Start demo truck" (with 60 px padding)
+  const lastFramedTruckRouteRef = useRef<string | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const truck = vehicles.find((v) => v.id === "DEMO-TRUCK");
+    if (!truck || !truck.routeCoordinates || truck.routeCoordinates.length < 2) {
+      if (!truck) {
+        lastFramedTruckRouteRef.current = null;
+      }
+      return;
+    }
+
+    const startPt = truck.routeCoordinates[0];
+    const endPt = truck.routeCoordinates[truck.routeCoordinates.length - 1];
+    const truckRouteKey = `${truck.routeCoordinates.length}:${startPt[0]},${startPt[1]}:${endPt[0]},${endPt[1]}`;
+
+    if (lastFramedTruckRouteRef.current === truckRouteKey) return;
+    lastFramedTruckRouteRef.current = truckRouteKey;
+
+    userHasInteracted.current = false;
+    const bounds = new maplibregl.LngLatBounds();
+    bounds.extend([truck.lng, truck.lat]);
+    for (const coord of truck.routeCoordinates) {
+      bounds.extend(coord);
+    }
+
+    const fitTruck = () => {
+      map.fitBounds(bounds, {
+        padding: 60,
+        pitch: map.getPitch(),
+        duration: 800
+      });
+    };
+
+    try {
+      fitTruck();
+    } catch {
+      // ignore
+    }
+  }, [vehicles]);
 
 
   // 3D Tilt button handler - toggles between 2D (pitch 0) and 3D (pitch 55) smoothly

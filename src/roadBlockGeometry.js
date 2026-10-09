@@ -16,7 +16,7 @@ export function distanceAlongRoute(route) {
   );
 }
 
-export function orientRouteForTrip(route, origin, destination, maximumEndpointDistance = 250) {
+export function orientRouteForTrip(route, origin, destination, maximumEndpointDistance = 1500) {
   if (route.length < 2) return null;
   const forwardDistance = distanceMeters(route[0], origin)
     + distanceMeters(route[route.length - 1], destination);

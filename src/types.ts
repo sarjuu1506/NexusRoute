@@ -12,6 +12,7 @@ export type Vehicle = {
   progressMeters: number;
   source: "Demo vehicle" | "Demo truck" | string;
   riskObstacleId?: string;
+  bypassedObstacleId?: string;
   deliveries?: number;
   startRoadName?: string;
   destRoadName?: string;

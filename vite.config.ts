@@ -18,9 +18,14 @@ export default defineConfig(({ mode }) => {
       {
         name: "wayfi-private-api",
         configureServer(server) {
-          server.middlewares.use((request, response, next) => {
+          server.middlewares.use(async (request, response, next) => {
             if (!request.url?.startsWith("/api/")) return next();
-            void handleApiRequest(request, response);
+            try {
+              const { handleApiRequest: freshHandler } = await import(`./server/api.mjs?t=${Date.now()}`);
+              void freshHandler(request, response);
+            } catch {
+              void handleApiRequest(request, response);
+            }
           });
         }
       }

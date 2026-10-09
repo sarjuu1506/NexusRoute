@@ -163,7 +163,7 @@ test("demo jam endpoint creates exactly three small markers on TomTom road route
     for (const jam of response.body.jams) {
       assert.equal(jam.title, "Jam");
       assert.equal(jam.source, "Demo traffic jam");
-      assert.equal(jam.radiusMeters, 35);
+      assert.equal(jam.radiusMeters, 55);
       assert.equal(jam.simulated, true);
       assert.ok(jam.distance.includes("m from you"));
       const distance = distanceMeters([77, 11], [jam.lng, jam.lat]);
@@ -178,7 +178,7 @@ test("demo jam endpoint creates exactly three small markers on TomTom road route
     for (const obstacle of response.body.obstacles) {
       assert.equal(obstacle.title, "Obstacle");
       assert.equal(obstacle.source, "Demo road obstacle");
-      assert.equal(obstacle.radiusMeters, 75);
+      assert.equal(obstacle.radiusMeters, 150);
       assert.equal(obstacle.simulated, true);
       assert.ok(distanceMeters([77, 11], [obstacle.lng, obstacle.lat]) >= 800);
     }

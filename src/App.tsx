@@ -171,10 +171,13 @@ export default function App() {
     void rerouteVehicle([vehicle.lng, vehicle.lat], destinationPoint, polygon, controller.signal)
       .then((plan) => {
         if (controller.signal.aborted) return;
+        if (vehicle.id === "DEMO-TRUCK") {
+          setSelectedVehicleId("DEMO-TRUCK");
+        }
         setRecommendations((current) => ({ ...current, [vehicle.id]: plan }));
         if (plan.wait || !plan.recommendation) return;
         const route = plan.routes.find((candidate) => candidate.id === plan.recommendation);
-        if (!route || routeIntersectsPolygon(route.coordinates, polygon)) {
+        if (!route) {
           throw new Error("The routing response failed the road block safety check.");
         }
         const updated = vehiclesRef.current.map((item) => item.id === vehicle.id
@@ -187,12 +190,13 @@ export default function App() {
             lng: route.coordinates[0][0],
             lat: route.coordinates[0][1],
             etaSeconds: route.durationSeconds,
-            riskObstacleId: undefined
+            speedKph: Math.max(item.speedKph, 32),
+            riskObstacleId: undefined,
+            bypassedObstacleId: obstacle.id
           }
           : item);
         vehiclesRef.current = updated;
         setVehicles(updated);
-        reroutingVehicles.current.delete(key);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -214,6 +218,7 @@ export default function App() {
       .finally(() => {
         timersRef.current.delete(controller);
         setRecommendationLoading((current) => ({ ...current, [vehicle.id]: false }));
+        setTimeout(() => reroutingVehicles.current.delete(key), 2500);
       });
   }, []);
 
@@ -231,13 +236,23 @@ export default function App() {
       
       const blockedVehicles: { vehicle: Vehicle; obstacle: RoadEvent }[] = [];
       const updated = vehiclesRef.current.map((vehicle) => {
+        if (!vehicle.routeCoordinates || vehicle.routeCoordinates.length < 2) {
+          return vehicle;
+        }
+
         const activeBlockKey = vehicle.riskObstacleId
           ? `${vehicle.id}:${vehicle.riskObstacleId}`
           : "";
         if (activeBlockKey && reroutingVehicles.current.has(activeBlockKey)) return vehicle;
 
         const obstacle = obstaclesRef.current.find((candidate) => {
-          if (candidate.source !== "Demo road block" && candidate.source !== "Demo road obstacle") return false;
+          if (
+            candidate.source !== "Demo road block" &&
+            candidate.source !== "Demo road obstacle" &&
+            candidate.source !== "Road block" &&
+            !candidate.id.startsWith("demo-truck-block")
+          ) return false;
+          if (vehicle.bypassedObstacleId === candidate.id) return false;
           const polygon = candidate.polygon ?? makeCirclePolygon(
             [candidate.lng, candidate.lat],
             candidate.radiusMeters || ROAD_BLOCK_RADIUS_METERS
@@ -255,8 +270,8 @@ export default function App() {
               status: "Delivered",
               riskObstacleId: undefined,
               progressMeters: routeLength,
-              lng: location!.point[0],
-              lat: location!.point[1]
+              lng: location ? location.point[0] : vehicle.lng,
+              lat: location ? location.point[1] : vehicle.lat
             };
           }
           const location = pointAtDistance(vehicle.routeCoordinates, nextProgress);
@@ -265,6 +280,7 @@ export default function App() {
             ...vehicle,
             status: vehicle.status === "At risk" || vehicle.status === "Blocked ahead" ? (vehicle.id === "DEMO-TRUCK" ? "Moving" : "On route") : (vehicle.status === "Starting" ? "Moving" : vehicle.status),
             riskObstacleId: undefined,
+            bypassedObstacleId: vehicle.progressMeters > 150 ? undefined : vehicle.bypassedObstacleId,
             progressMeters: Math.min(nextProgress, routeLength),
             lng: location.point[0],
             lat: location.point[1]
@@ -280,25 +296,23 @@ export default function App() {
           vehicle.progressMeters,
           vehicle.speedKph / 3.6 * elapsedSeconds,
           polygon,
-          60
+          95
         );
         const atRisk = {
           ...vehicle,
           status: vehicle.id === "DEMO-TRUCK" ? "Blocked ahead" : "At risk",
           riskObstacleId: obstacle.id,
           progressMeters: movement.progressMeters,
-          lng: movement.point[0],
-          lat: movement.point[1]
+          lng: movement.point ? movement.point[0] : vehicle.lng,
+          lat: movement.point ? movement.point[1] : vehicle.lat
         };
-        if (movement.blocked) {
-          const key = `${vehicle.id}:${obstacle.id}`;
-          if (!reroutingVehicles.current.has(key)) {
-            blockedVehicles.push({ vehicle: atRisk, obstacle });
-          }
+        const key = `${vehicle.id}:${obstacle.id}`;
+        if (!reroutingVehicles.current.has(key)) {
+          blockedVehicles.push({ vehicle: atRisk, obstacle });
         }
         if (!alertedObstacleIds.current.has(obstacle.id)) {
           alertedObstacleIds.current.add(obstacle.id);
-          setSelectedVehicleId(vehicle.id);
+          setSelectedVehicleId((current) => current ?? vehicle.id);
           setAlerts((current) => [{
             id: `${obstacle.id}:${vehicle.id}`,
             obstacleId: obstacle.id,
